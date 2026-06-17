@@ -6,7 +6,6 @@ use std::path::Path;
 use tokio::fs::{File, OpenOptions};
 use tokio::io::AsyncReadExt;
 
-#[allow(dead_code)]
 pub struct Chunk {
     pub chunk_id: String,
     pub file_path: String,
@@ -155,15 +154,16 @@ impl<const D: usize> VectorStore<D> {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open(path)
                 .await?;
             let mmap = unsafe { memmap2::MmapMut::map_mut(&file)? };
 
             let mut store = Self {
                 vec_path: vec_path.to_string(),
-                config: config.clone(),
-                mmap: mmap,
-                file: file,
+                config,
+                mmap,
+                file,
                 est_max_layer,
             };
             store.write_header().await?;
@@ -174,6 +174,7 @@ impl<const D: usize> VectorStore<D> {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(path)
             .await?;
 
@@ -194,9 +195,9 @@ impl<const D: usize> VectorStore<D> {
 
         let mut store = Self {
             vec_path: vec_path.to_string(),
-            config: config.clone(),
-            mmap: mmap,
-            file: file,
+            config,
+            mmap,
+            file,
             est_max_layer,
         };
         store.verify_db().await?;
@@ -204,15 +205,15 @@ impl<const D: usize> VectorStore<D> {
     }
 
     pub fn header_mut(&mut self) -> &mut Header {
-        return bytemuck::from_bytes_mut(&mut self.mmap[0..HEADER_SIZE]);
+        bytemuck::from_bytes_mut(&mut self.mmap[0..HEADER_SIZE])
     }
 
     pub fn header(&self) -> &Header {
-        return bytemuck::from_bytes(&self.mmap[0..HEADER_SIZE]);
+        bytemuck::from_bytes(&self.mmap[0..HEADER_SIZE])
     }
 
     pub fn node_count(&self) -> u64 {
-        return self.header().nodes;
+        self.header().nodes
     }
 
     pub fn entry(&self) -> Option<u64> {
@@ -417,7 +418,7 @@ impl<const D: usize> VectorStore<D> {
 
     pub async fn add_embeddings(
         &mut self,
-        chunks: &Vec<Chunk>,
+        chunks: &[Chunk],
         embeddings: &[Vec<f32>],
     ) -> Result<(), anyhow::Error> {
         let prev_length = self.mmap.len();
@@ -427,7 +428,7 @@ impl<const D: usize> VectorStore<D> {
 
         unsafe {
             self.mmap.remap(
-                prev_length + chunks.len() * self.record_size() as usize,
+                prev_length + chunks.len() * self.record_size(),
                 RemapOptions::new().may_move(true),
             )?;
         }
@@ -463,7 +464,7 @@ impl<const D: usize> VectorStore<D> {
                 None => {
                     let h = self.header_mut();
                     h.entry = eid;
-                    h.max_layer = node_layer as u32;
+                    h.max_layer = node_layer;
                     continue;
                 }
             };
@@ -547,12 +548,11 @@ impl<const D: usize> VectorStore<D> {
         }
 
         while let Some(candidate) = candidates.pop() {
-            if result.len() >= ef {
-                if let Some(furthest) = result.peek() {
-                    if candidate.sim < furthest.sim {
-                        break;
-                    }
-                }
+            if result.len() >= ef
+                && let Some(furthest) = result.peek()
+                && candidate.sim < furthest.sim
+            {
+                break;
             }
 
             for neighbor in self.get_connections_vec(candidate.id, layer) {
@@ -563,12 +563,11 @@ impl<const D: usize> VectorStore<D> {
                     let similarity = cosine_similarity(query, self.vector(neighbor));
 
                     let mut should_push = true;
-                    if result.len() >= ef {
-                        if let Some(furthest) = result.peek() {
-                            if similarity <= furthest.sim {
-                                should_push = false;
-                            }
-                        }
+                    if result.len() >= ef
+                        && let Some(furthest) = result.peek()
+                        && similarity <= furthest.sim
+                    {
+                        should_push = false;
                     }
 
                     if should_push {

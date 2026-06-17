@@ -72,7 +72,7 @@ async fn run_cli_loop<const D: usize>(
                         if query_text.is_empty() {
                             continue;
                         }
-                        match gemini::fetch_embeddings(&gemini_api_key, &[query_text]).await {
+                        match gemini::fetch_embeddings(gemini_api_key, &[query_text]).await {
                             Ok(query_vec) => {
                                 if let Some(first_vec) = query_vec.into_iter().next() {
                                     let results = ds.search(&first_vec, 3).await?;

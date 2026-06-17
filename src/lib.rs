@@ -69,10 +69,10 @@ impl<const D: usize> DocumentStore<D> {
                 let mut debl = debounce_logs2.lock().unwrap();
                 event.paths.retain(|path| {
                     if debl.contains(path) {
-                        return false;
+                        false
                     } else {
                         debl.insert(path.clone());
-                        return true;
+                        true
                     }
                 });
 
@@ -96,10 +96,9 @@ impl<const D: usize> DocumentStore<D> {
                                 .send(FileEvent {
                                     file_path: std::path::absolute(&path)?
                                         .to_str()
-                                        .expect(&format!(
-                                            "path is not valid utf-8: {}",
-                                            path.display(),
-                                        ))
+                                        .unwrap_or_else(|| {
+                                            panic!("path is not valid utf-8: {}", path.display(),)
+                                        })
                                         .to_string(),
                                     etype: et.clone(),
                                 })
@@ -113,7 +112,7 @@ impl<const D: usize> DocumentStore<D> {
 
         let mut store = Self {
             conn,
-            watcher: watcher,
+            watcher,
             rx,
             vs,
         };
@@ -181,19 +180,17 @@ impl<const D: usize> DocumentStore<D> {
         let mut files = Vec::new();
         let walker = ignore::WalkBuilder::new(dir).hidden(false).build();
 
-        for result in walker {
-            if let Ok(entry) = result {
-                if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                    continue;
-                }
+        for entry in walker.flatten() {
+            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
+                continue;
+            }
 
-                let path = entry.path().to_string_lossy().to_string();
-                let mut path_rslv = std::path::absolute(path)?;
-                path_rslv = std::path::absolute(path_rslv)?;
+            let path = entry.path().to_string_lossy().to_string();
+            let mut path_rslv = std::path::absolute(path)?;
+            path_rslv = std::path::absolute(path_rslv)?;
 
-                if self.gen_content_hash(&path_rslv).await.unwrap_or(false) {
-                    files.push(path_rslv);
-                }
+            if self.gen_content_hash(&path_rslv).await.unwrap_or(false) {
+                files.push(path_rslv);
             }
         }
 
@@ -229,10 +226,8 @@ impl<const D: usize> DocumentStore<D> {
                     Ok((eid, file))
                 })?;
 
-                for row in rows {
-                    if let Ok((eid, file)) = row {
-                        id_to_file.insert(eid, file);
-                    }
+                for (eid, file) in rows.flatten() {
+                    id_to_file.insert(eid, file);
                 }
 
                 Ok::<_, rusqlite::Error>(id_to_file)
@@ -243,12 +238,12 @@ impl<const D: usize> DocumentStore<D> {
         let mut seen = HashSet::new();
 
         for (id, score) in vector_result {
-            if let Some(file) = files_map.get(&id) {
-                if seen.insert(file.clone()) {
-                    unique_files.push((file.clone(), score));
-                    if unique_files.len() == top_k {
-                        break;
-                    }
+            if let Some(file) = files_map.get(&id)
+                && seen.insert(file.clone())
+            {
+                unique_files.push((file.clone(), score));
+                if unique_files.len() == top_k {
+                    break;
                 }
             }
         }
@@ -323,7 +318,7 @@ impl<const D: usize> DocumentStore<D> {
 
         let path2 = path
             .to_str()
-            .expect(&format!("path is not valid utf-8: {}", path.display()))
+            .unwrap_or_else(|| panic!("path is not valid utf-8: {}", path.display()))
             .to_string();
         let path3 = path2.clone();
         let hash_clone1 = hash.clone();
